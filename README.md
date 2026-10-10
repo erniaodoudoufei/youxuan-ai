@@ -3,8 +3,8 @@
 一个输入框，同时问 Claude / ChatGPT / Gemini 网页版（用你自己的会员登录，不走 API），回答并排显示，还可以让其中一个 AI 当裁判对比总结。
 
 ## 安装
-1. 打开 `chrome://extensions`，右上角打开「开发者模式」。
-2. 点「加载已解压的扩展程序」，选择本文件夹 `D:\claudecode\优选AI`。
+1. 到 [Releases](https://github.com/erniaodoudoufei/youxuan-ai/releases) 下载最新的 `youxuan-ai-vX.Y.Z.zip` 并解压（或直接克隆本仓库）。
+2. 打开 `chrome://extensions`，右上角打开「开发者模式」，点「加载已解压的扩展程序」，选择解压出来的文件夹。
 3. 把插件固定到工具栏（拼图图标 → 图钉）。
 4. 先在 Chrome 里分别登录 claude.ai、chatgpt.com、gemini.google.com。
 

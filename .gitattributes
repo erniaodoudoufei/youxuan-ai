@@ -1,0 +1,5 @@
+# 打包发布用的 zip 里不需要这些开发文件
+.gitignore export-ignore
+.gitattributes export-ignore
+scripts/ export-ignore
+CLAUDE.md export-ignore
