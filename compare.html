@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>优选AI</title>
+  <link rel="stylesheet" href="compare.css">
+</head>
+<body>
+  <header class="top">
+    <h1>优选AI</h1>
+    <span class="sub">一次提问，多家作答</span>
+  </header>
+
+  <section class="composer">
+    <textarea id="question" rows="4" placeholder="输入你的问题，Ctrl + Enter 发送（草稿会自动保存）"></textarea>
+    <div id="draftInfo" class="hint draft-info"></div>
+    <div class="sites" id="siteChecks"></div>
+    <div class="controls">
+      <div class="refresh">
+        <button id="refreshBtn">刷新模型列表</button>
+        <span id="refreshInfo" class="hint"></span>
+      </div>
+      <button id="askBtn" class="primary">同时提问</button>
+    </div>
+  </section>
+
+  <section id="answers" class="answers"></section>
+
+  <section id="judgeBar" class="judge-bar" hidden>
+    <label>裁判
+      <select id="judgeSite"></select>
+    </label>
+    <button id="judgeBtn">让 AI 对比这些回答</button>
+    <span class="hint">回答会匿名成 A/B/C 再发给裁判，避免它偏袒自己。也可以点 Chrome 右上角的「问问 Gemini」让它读本页来对比。</span>
+  </section>
+
+  <section id="judgeOut"></section>
+
+  <script src="sites.js"></script>
+  <script src="lib/sanitize.js"></script>
+  <script src="compare.js"></script>
+</body>
+</html>
