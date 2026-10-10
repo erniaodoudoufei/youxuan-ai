@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "优选AI",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "一个输入框同时问 Claude / ChatGPT / Gemini 网页版，并排对比回答，可让其中一个 AI 当裁判总结差异。",
   "permissions": ["tabs", "tabGroups", "storage"],
   "host_permissions": [

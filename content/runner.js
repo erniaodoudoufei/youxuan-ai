@@ -221,19 +221,27 @@
   }
 
   // 打开模型菜单；有的组件 pointerdown 和 click 各切换一次，打不开就再补一次 click
+  // 页面刚加载或刚切换模式时按钮可能还不响应，打不开就隔一会儿重新找按钮再试
   async function openPicker() {
     await closeMenus();
-    const trigger = await waitFor(() => findVisible(cfg.picker.trigger), 4000);
-    if (!trigger) return null;
-    const before = openMenus();
-    realClick(trigger);
-    let menu = await waitNewMenu(before);
-    if (!menu) {
-      trigger.click();
-      menu = await waitNewMenu(before);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const trigger = await waitFor(() => findVisible(cfg.picker.trigger), 4000);
+      if (!trigger) return null;
+      const before = openMenus();
+      realClick(trigger);
+      let menu = await waitNewMenu(before, 2000);
+      if (!menu) {
+        trigger.click();
+        menu = await waitNewMenu(before, 2000);
+      }
+      if (menu) {
+        await sleep(300);
+        return menu;
+      }
+      await closeMenus();
+      await sleep(1000);
     }
-    if (menu) await sleep(300);
-    return menu;
+    return null;
   }
 
   const isChecked = (el) => el.getAttribute('aria-checked') === 'true' || el.getAttribute('data-state') === 'checked' ||
@@ -282,13 +290,21 @@
   };
   const currentMode = () => (modeButtons().find((b) => b.getAttribute('aria-pressed') === 'true')?.innerText || '').trim();
 
+  // 新打开的页面里，输入框出现时模式按钮往往还不响应点击（实测 ChatGPT 要再等几秒），
+  // 所以点了没切过去就隔一会儿再点，最多试 6 次
   async function setMode(label) {
-    const btn = modeButtons().find((b) => sameLabel(b.innerText, label));
-    if (!btn) return false;
-    if (btn.getAttribute('aria-pressed') !== 'true') {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      if (sameLabel(currentMode(), label)) {
+        if (attempt > 0) await sleep(1000); // 切换后输入框和模型按钮会重建
+        return true;
+      }
+      const btn = modeButtons().find((b) => sameLabel(b.innerText, label));
+      if (!btn) {
+        await sleep(1000); // 按钮组可能还没渲染出来
+        continue;
+      }
       realClick(btn);
-      await waitFor(() => sameLabel(currentMode(), label), 3000);
-      await sleep(1000); // 切换后输入框和模型按钮会重建
+      await waitFor(() => sameLabel(currentMode(), label), 1500, 250);
     }
     return sameLabel(currentMode(), label);
   }
