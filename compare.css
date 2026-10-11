@@ -68,6 +68,23 @@ textarea {
 .hint { color: var(--muted); font-size: 12px; }
 .draft-info { text-align: right; min-height: 18px; margin-top: 2px; }
 
+.by-title { margin-top: 12px; }
+.by-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.by-title-row input {
+  flex: 1;
+  min-width: 220px;
+  font: inherit;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+}
+.by-title .hint { margin-top: 6px; }
+label.inline { display: flex; align-items: center; gap: 6px; }
+.panel-body .question-line { color: var(--muted); border-left: 3px solid var(--border); padding-left: 10px; margin: 10px 0; white-space: pre-wrap; }
+.panel-body .plain { white-space: pre-wrap; margin: 10px 0; }
+
 button {
   font: inherit;
   border: 1px solid var(--border);

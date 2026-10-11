@@ -25,6 +25,18 @@
     </div>
   </section>
 
+  <section class="composer by-title">
+    <div class="by-title-row">
+      <strong>按对话标题对比</strong>
+      <input id="convTitle" type="text" placeholder="输入各网站里同名对话的标题，回车开始">
+      <label class="inline">裁判
+        <select id="titleJudgeSite"></select>
+      </label>
+      <button id="titleBtn">查找并对比</button>
+    </div>
+    <div class="hint">在上面勾选的网站里找这个标题的对话（完全同名优先，其次包含该标题；有多个时取最近的），取最后一轮问答交给裁判对比。</div>
+  </section>
+
   <section id="answers" class="answers"></section>
 
   <section id="judgeBar" class="judge-bar" hidden>

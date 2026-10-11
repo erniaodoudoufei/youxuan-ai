@@ -59,13 +59,17 @@ async function loadSettings() {
     box.append(row);
     fillModelSelects(key);
 
-    const opt = document.createElement('option');
-    opt.value = key;
-    opt.textContent = YX_SITES[key].name;
-    $('judgeSite').append(opt);
+    for (const sel of [$('judgeSite'), $('titleJudgeSite')]) addOption(sel, key, YX_SITES[key].name);
   }
-  $('judgeSite').value = stored.judgeSite || 'gemini';
-  $('judgeSite').addEventListener('change', () => chrome.storage.local.set({ judgeSite: $('judgeSite').value }));
+  // 两处裁判下拉框（底部 和 按标题对比）是同一个设置
+  const judgeSelects = [$('judgeSite'), $('titleJudgeSite')];
+  for (const sel of judgeSelects) {
+    sel.value = stored.judgeSite || 'gemini';
+    sel.addEventListener('change', () => {
+      for (const other of judgeSelects) other.value = sel.value;
+      chrome.storage.local.set({ judgeSite: sel.value });
+    });
+  }
   showRefreshInfo();
 }
 
@@ -340,7 +344,20 @@ function updatePanel(st) {
   statusEl.className = 'status ' + st.status;
   statusEl.textContent = STATUS_TEXT[st.status] || st.status;
   const body = st.panel.querySelector('.panel-body');
-  if (st.html) {
+  if (st.question !== undefined && (st.html || st.text)) {
+    // 按标题找到的历史对话：先显示当时的提问，再显示回答
+    body.innerHTML = '';
+    const q = document.createElement('p');
+    q.className = 'question-line';
+    q.textContent = '问：' + (st.question || '（没读到提问）');
+    const a = document.createElement('div');
+    if (st.html) renderHtml(a, st.html);
+    else {
+      a.className = 'plain';
+      a.textContent = st.text;
+    }
+    body.append(q, a);
+  } else if (st.html) {
     renderHtml(body, st.html);
   } else if (st.status === 'generating') {
     body.innerHTML = '<p class="placeholder">已发送，等待回答…</p>';
@@ -409,7 +426,15 @@ async function ask() {
 // ---------- 裁判 ----------
 
 function buildJudgePrompt(question, entries) {
-  const answers = entries.map(([letter, st]) => `【回答${letter}】\n${st.text.trim()}`).join('\n\n');
+  // 按标题对比时，各网站里的提问可能措辞不同：相同就只写一次，不同就跟在各自回答前面
+  const norm = (s) => (s || '').replace(/\s+/g, '');
+  const qs = entries.map(([, st]) => st.question ?? question);
+  const sameQuestion = qs.every((q) => norm(q) === norm(qs[0]));
+  const answers = entries.map(([letter, st], i) =>
+    (sameQuestion ? '' : `【回答${letter} 对应的提问】\n${qs[i].trim()}\n\n`) + `【回答${letter}】\n${st.text.trim()}`).join('\n\n');
+  const questionBlock = sameQuestion
+    ? `【问题】\n${qs[0]}`
+    : '（各回答对应的提问措辞略有不同，已分别列出，请按同一个问题来对比）';
   return `你是一名公正、严格的评审。下面是不同 AI 助手对同一个问题的回答，已匿名为「回答${entries.map(([l]) => l).join('/')}」。请对比它们并输出：
 1. 一句话结论：哪个回答最好，为什么。
 2. 核心差异：各回答在结论、立场、关键事实上有哪些不同。
@@ -419,10 +444,77 @@ function buildJudgePrompt(question, entries) {
 6. 综合最佳回答的要点（简要列出）。
 请用中文、Markdown 格式回答，不要猜测每个回答出自哪个 AI。
 
-【问题】
-${question}
+${questionBlock}
 
 ${answers}`;
+}
+
+// ---------- 按对话标题对比 ----------
+// 不经过插件提问：到各网站里找同名的历史对话，取最后一轮问答，再交给裁判
+
+async function compareByTitle() {
+  const title = $('convTitle').value.trim();
+  const sites = selectedSites();
+  if (!title) return $('convTitle').focus();
+  if (sites.length < 2) return alert('请在上面至少勾选两个网站');
+
+  const runId = 't' + Date.now().toString(36);
+  run = { runId, question: '', slots: {} };
+  judge = null;
+  $('answers').innerHTML = '';
+  $('judgeOut').innerHTML = '';
+  $('judgeBar').hidden = true;
+  $('titleBtn').disabled = true;
+
+  for (const site of sites) {
+    const panel = createPanel(site, YX_SITES[site].name);
+    panel.querySelector('.status').textContent = '查找中…';
+    panel.querySelector('.panel-body').innerHTML = '';
+    const p = document.createElement('p');
+    p.className = 'placeholder';
+    p.textContent = `正在 ${YX_SITES[site].name} 里查找「${title}」…`;
+    panel.querySelector('.panel-body').append(p);
+    $('answers').append(panel);
+    run.slots[site] = { site, status: 'sending', html: '', text: '', panel };
+  }
+
+  await Promise.all(sites.map(async (site) => {
+    const st = run.slots[site];
+    try {
+      const tabId = await openFreshTab(site, YX_SITES[site].newChatUrl);
+      const resp = await sendToTab(tabId, { type: 'yx-find-conversation', title });
+      if (run.runId !== runId) return; // 已经开始了新的一轮
+      if (resp?.ok && (resp.answer || resp.html)) {
+        Object.assign(st, {
+          status: 'done',
+          question: resp.question || '',
+          text: resp.answer || '',
+          html: resp.html || '',
+          modelUsed: `《${resp.title}》` + (resp.matches > 1 ? `（匹配到 ${resp.matches} 个，用了最近的）` : '')
+        });
+        // 让“打开原网页”直接看到这个对话
+        if (resp.url) chrome.tabs.update(tabId, { url: resp.url }).catch(() => {});
+      } else {
+        Object.assign(st, {
+          status: 'error',
+          error: resp?.ok ? '找到了对话，但最后一轮没有回答内容' : (resp?.error === 'busy' ? '该页面正忙，请稍后再试' : resp?.error || '无法连接到页面'),
+          diag: resp?.diag || null
+        });
+      }
+    } catch (e) {
+      Object.assign(st, { status: 'error', error: '查找失败：' + (e?.message || e) });
+    }
+    updatePanel(st);
+  }));
+
+  $('titleBtn').disabled = false;
+  if (run.runId !== runId) return;
+  refreshJudgeBar();
+  const found = Object.values(run.slots).filter((s) => s.text.trim());
+  if (found.length >= 2) {
+    $('judgeSite').value = $('titleJudgeSite').value;
+    startJudge();
+  }
 }
 
 async function startJudge() {
@@ -509,6 +601,13 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && dra
 $('askBtn').addEventListener('click', ask);
 $('judgeBtn').addEventListener('click', startJudge);
 $('refreshBtn').addEventListener('click', refreshOptions);
+$('titleBtn').addEventListener('click', compareByTitle);
+$('convTitle').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    compareByTitle();
+  }
+});
 $('question').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
     e.preventDefault();

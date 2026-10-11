@@ -15,6 +15,9 @@
 //       { type: 'submenu', match, item }   菜单里名字匹配 match 的子菜单，里面是各档位
 //       { type: 'section', item }          与模型同一个菜单里的另一组选项
 //       null                               没有
+//   history    按标题查找历史对话：
+//     { type: 'chatgpt-api' } / { type: 'claude-api' }  用网站自己的接口列出全部对话并读取内容
+//     { type: 'sidebar', item, title, scroller, question }  在侧边栏里找标题，点开后从页面读最后一轮问答
 
 // 大多数网站的弹出菜单遵循 ARIA 规范
 const YX_MENU = ['[role="menu"]', '.mat-mdc-menu-panel'];
@@ -54,7 +57,8 @@ const YX_SITES = {
         match: /努力程度|effort|思考/i,
         item: ['[role="menuitemradio"]']
       }
-    }
+    },
+    history: { type: 'claude-api' }
   },
 
   chatgpt: {
@@ -96,7 +100,8 @@ const YX_SITES = {
         item: ['[role="menuitem"][aria-label="强度"]', '[role="menuitem"][aria-label*="effort" i]', '[role="menuitem"][aria-keyshortcuts*="ArrowLeft"]'],
         status: '[role="status"]'
       }
-    }
+    },
+    history: { type: 'chatgpt-api' }
   },
 
   gemini: {
@@ -132,6 +137,14 @@ const YX_SITES = {
         type: 'section',
         item: ['[role="menuitem"]:not([data-test-id^="bard-mode-option"])']
       }
+    },
+    history: {
+      type: 'sidebar',
+      item: '[data-test-id="conversation"]',
+      title: '.title-text',
+      scroller: 'infinite-scroller',
+      menuButton: ['button[data-test-id="side-nav-menu-button"]', 'button[aria-label="主菜单"]', 'button[aria-label*="menu" i]'],
+      question: ['user-query .query-text-line', 'user-query .query-text']
     }
   }
 };

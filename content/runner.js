@@ -551,6 +551,156 @@
     }
   }
 
+  // ---------- 按标题查找历史对话，取最后一轮问答 ----------
+
+  // 优先完全同名，其次标题包含关键词；多个匹配取最近更新的
+  function pickByTitle(items, title) {
+    const q = key(title);
+    const byTime = (a, b) => (b.time || 0) - (a.time || 0);
+    const exact = items.filter((i) => key(i.title) === q).sort(byTime);
+    if (exact.length) return { item: exact[0], matches: exact.length, matchType: 'exact' };
+    const part = items.filter((i) => key(i.title).includes(q)).sort(byTime);
+    if (part.length) return { item: part[0], matches: part.length, matchType: 'contains' };
+    return null;
+  }
+
+  // ChatGPT 回答里的引用标记（私用区字符包着的 cite 等）去掉
+  const stripMarks = (s) => (s || '').replace(/[^]*/g, '').trim();
+
+  async function findChatGPT(title) {
+    const session = await fetch('/api/auth/session').then((r) => r.json());
+    if (!session?.accessToken) return { ok: false, error: 'ChatGPT 未登录' };
+    const opts = { headers: { Authorization: 'Bearer ' + session.accessToken } };
+
+    const items = [];
+    for (let offset = 0; offset < 1000; offset += 100) {
+      const page = await fetch(`/backend-api/conversations?offset=${offset}&limit=100&order=updated`, opts).then((r) => r.json());
+      for (const c of page.items || []) {
+        items.push({ title: c.title || '', id: c.id, time: Date.parse(c.update_time) || 0 });
+      }
+      if (!page.items?.length || offset + 100 >= (page.total || 0)) break;
+    }
+    const hit = pickByTitle(items, title);
+    if (!hit) return { ok: false, error: `ChatGPT 里没有找到标题含「${title}」的对话（共查了 ${items.length} 个）` };
+
+    const conv = await fetch(`/backend-api/conversation/${hit.item.id}`, opts).then((r) => r.json());
+    // 从当前叶子节点往上走，得到当前分支的消息顺序
+    const path = [];
+    for (let n = conv.current_node; n && conv.mapping[n]; n = conv.mapping[n].parent) {
+      if (conv.mapping[n].message) path.unshift(conv.mapping[n].message);
+    }
+    const visible = (m) => !m.metadata?.is_visually_hidden_from_conversation;
+    const textOf = (m) => (m.content?.parts || []).filter((p) => typeof p === 'string').join('\n');
+    const lastUser = path.map((m, i) => [m, i])
+      .filter(([m]) => m.author?.role === 'user' && m.content?.content_type === 'text' && visible(m)).pop();
+    if (!lastUser) return { ok: false, error: '这个 ChatGPT 对话里没有找到提问' };
+    // 只要给用户看的最终回答，跳过思考、工具调用等中间步骤
+    const replies = path.slice(lastUser[1] + 1).filter((m) => m.author?.role === 'assistant' &&
+      m.content?.content_type === 'text' && m.recipient === 'all' && visible(m) && textOf(m).trim());
+    const finals = replies.filter((m) => m.channel === 'final');
+    const answer = stripMarks((finals.length ? finals : replies).map(textOf).join('\n\n'));
+    return {
+      ok: true, title: hit.item.title, url: `https://chatgpt.com/c/${hit.item.id}`,
+      matches: hit.matches, matchType: hit.matchType, question: textOf(lastUser[0]).trim(), answer
+    };
+  }
+
+  async function findClaude(title) {
+    const orgs = await fetch('/api/organizations').then((r) => r.json());
+    if (!Array.isArray(orgs)) return { ok: false, error: 'Claude 未登录' };
+    const chatOrgs = orgs.filter((o) => (o.capabilities || []).includes('chat'));
+    const items = [];
+    for (const org of chatOrgs.length ? chatOrgs : orgs) {
+      const list = await fetch(`/api/organizations/${org.uuid}/chat_conversations?limit=1000`).then((r) => r.json()).catch(() => []);
+      for (const c of Array.isArray(list) ? list : []) {
+        items.push({ title: c.name || '', id: c.uuid, org: org.uuid, time: Date.parse(c.updated_at) || 0 });
+      }
+    }
+    const hit = pickByTitle(items, title);
+    if (!hit) return { ok: false, error: `Claude 里没有找到标题含「${title}」的对话（共查了 ${items.length} 个）` };
+
+    const conv = await fetch(`/api/organizations/${hit.item.org}/chat_conversations/${hit.item.id}?tree=True&rendering_mode=messages&render_all_tools=true`).then((r) => r.json());
+    const byId = Object.fromEntries((conv.chat_messages || []).map((m) => [m.uuid, m]));
+    const path = [];
+    for (let m = byId[conv.current_leaf_message_uuid]; m; m = byId[m.parent_message_uuid]) path.unshift(m);
+    // 只取文字部分，跳过思考、工具调用和图片
+    const textOf = (m) => (m.content || []).filter((c) => c.type === 'text').map((c) => c.text || '').join('\n\n').trim() || (m.text || '').trim();
+    const qi = path.map((m) => m.sender).lastIndexOf('human');
+    if (qi < 0) return { ok: false, error: '这个 Claude 对话里没有找到提问' };
+    const answer = path.slice(qi + 1).filter((m) => m.sender === 'assistant').map(textOf).filter(Boolean).join('\n\n');
+    return {
+      ok: true, title: hit.item.title, url: `https://claude.ai/chat/${hit.item.id}`,
+      matches: hit.matches, matchType: hit.matchType, question: textOf(path[qi]), answer
+    };
+  }
+
+  // Gemini 没有方便的接口：在侧边栏里找标题（不够就往下滚加载更多），点开后从页面读
+  async function findInSidebar(title) {
+    const h = cfg.history;
+    const readList = () => [...document.querySelectorAll(h.item)].map((el, i) => ({
+      el,
+      title: (el.querySelector(h.title)?.textContent || el.textContent || '').trim(),
+      link: el.closest('a') || el.querySelector('a'),
+      time: -i // 侧边栏本来就是最近的在上面
+    }));
+
+    if (!(await waitFor(() => document.querySelector(h.item), 8000))) {
+      // 侧边栏收起时列表不渲染，试着展开
+      const btn = findVisible(h.menuButton);
+      if (btn) realClick(btn);
+      if (!(await waitFor(() => document.querySelector(h.item), 6000))) {
+        return { ok: false, error: '找不到 Gemini 侧边栏的对话列表', diag: diag('history-no-list') };
+      }
+    }
+    let hit = pickByTitle(readList(), title);
+    for (let i = 0; !hit && i < 25; i++) { // 每次约加载 20 个，最多翻到 500 个左右
+      const before = readList().length;
+      const scroller = document.querySelector(h.item)?.closest(h.scroller);
+      if (!scroller) break;
+      scroller.scrollTop = scroller.scrollHeight;
+      scroller.dispatchEvent(new Event('scroll'));
+      if (!(await waitFor(() => readList().length > before, 3000))) break; // 没有更多了
+      hit = pickByTitle(readList(), title);
+    }
+    if (!hit) return { ok: false, error: `Gemini 侧边栏里没有找到标题含「${title}」的对话（共查了 ${readList().length} 个）` };
+
+    const link = hit.item.link;
+    if (!link) return { ok: false, error: '找到了对话，但没有找到它的链接' };
+    const target = new URL(link.href).pathname;
+    if (location.pathname !== target) link.click(); // 站内跳转，内容脚本不会被重新加载
+    if (!(await waitFor(() => location.pathname === target && document.querySelector('user-query') && document.querySelector(cfg.message[0]), 20000))) {
+      return { ok: false, error: '打开 Gemini 对话超时', diag: diag('history-open') };
+    }
+    await sleep(1500); // 等内容渲染完整
+
+    const lastQuery = [...document.querySelectorAll('user-query')].pop();
+    let question = '';
+    for (const sel of h.question) {
+      const parts = [...lastQuery.parentElement.querySelectorAll(sel)].filter((e) => lastQuery.contains(e));
+      if (parts.length) {
+        question = parts.map((e) => e.innerText.trim()).join('\n');
+        break;
+      }
+    }
+    const msgs = findAll(cfg.message);
+    const { html, text } = extract(msgs[msgs.length - 1]);
+    return {
+      ok: true, title: hit.item.title, url: location.href,
+      matches: hit.matches, matchType: hit.matchType, question, answer: text, html
+    };
+  }
+
+  async function findConversation(title) {
+    if (!(await waitFor(() => document.readyState === 'complete', 15000))) {
+      return { ok: false, error: '页面加载超时' };
+    }
+    const type = cfg.history?.type;
+    if (type === 'chatgpt-api') return findChatGPT(title);
+    if (type === 'claude-api') return findClaude(title);
+    if (type === 'sidebar') return findInSidebar(title);
+    return { ok: false, error: `${cfg.name} 暂不支持按标题查找` };
+  }
+
   // ---------- 两个任务 ----------
 
   async function waitReady() {
@@ -628,6 +778,13 @@
       exclusive(() => ask(msg)).catch((e) =>
         report({ runId: msg.runId, slot: msg.slot, status: 'error', error: '出错：' + (e?.message || e), diag: diag('exception') }));
       return;
+    }
+    if (msg?.type === 'yx-find-conversation') {
+      if (busy) return sendResponse({ ok: false, error: 'busy' });
+      exclusive(() => findConversation(msg.title))
+        .then(sendResponse)
+        .catch((e) => sendResponse({ ok: false, error: '出错：' + (e?.message || e), diag: diag('exception') }));
+      return true; // 异步回复
     }
     if (msg?.type === 'yx-list-options') {
       if (busy) return sendResponse({ ok: false, error: 'busy' });
