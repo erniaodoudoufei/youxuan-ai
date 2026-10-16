@@ -8,6 +8,16 @@
 3. 把插件固定到工具栏（拼图图标 → 图钉）。
 4. 先在 Chrome 里分别登录 claude.ai、chatgpt.com、gemini.google.com。
 
+### 在 Edge 里使用
+不需要改代码，安装步骤稍有不同：
+1. 打开 `edge://extensions`，打开左侧（或底部）的「开发人员模式」。
+2. 点「加载解压缩的扩展」，选择同一个文件夹。
+3. 在 Edge 里分别登录 claude.ai、chatgpt.com、gemini.google.com（Edge 和 Chrome 的登录状态不共享）。
+4. 建议关掉这三个网站的「睡眠标签页」：`edge://settings/system` →「使用睡眠标签页节省资源」→「从不让这些站点进入睡眠状态」里添加
+   `claude.ai`、`chatgpt.com`、`gemini.google.com`。否则后台标签页可能在等待长回答时被 Edge 冻结。
+
+模型列表、勾选状态等设置在两个浏览器里各存一份，Edge 里第一次用要点一次「刷新模型列表」。
+
 ## 使用
 1. 点插件图标，打开「优选AI」对比页。
 2. 勾选要问的 AI（Gemini 默认不勾，勾选状态会记住），输入问题，点「同时提问」或按 Ctrl+Enter。
